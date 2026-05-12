@@ -21,7 +21,12 @@ import {
 const GOOGLE_CLIENT_ID =
   "261773148186-1co5gre3f7sqq8q3s04uddlfj3nqakv3.apps.googleusercontent.com";
 const SCOPES = "https://www.googleapis.com/auth/drive.file";
-const FOLDER_ROOT_NAME = "BUKTI DUKUNG ZI 2026";
+
+// 👇 PENTING: GANTI DENGAN ID FOLDER GOOGLE DRIVE YANG SUDAH DI-SHARE 👇
+const SHARED_ROOT_ID =
+  "https://drive.google.com/drive/folders/1H3Ot16uThwt1QmM1O2AZl3WREatH26uy?usp=sharing";
+// 👆==================================================================👆
+
 const META_FILE_NAME = "zi_doc_meta.json";
 const FOLDER_PENGUNGKIT = "A. PENGUNGKIT";
 const TAB_FOLDER = { A: "I. PEMENUHAN", B: "II. REFORM" };
@@ -830,10 +835,9 @@ async function loadDriveDiscovery() {
   window._driveDiscoveryLoaded = true;
 }
 
-async function getOrCreateFolder(name, parentId = null) {
-  const q = parentId
-    ? `name='${name}' and mimeType='application/vnd.google-apps.folder' and '${parentId}' in parents and trashed=false`
-    : `name='${name}' and mimeType='application/vnd.google-apps.folder' and trashed=false`;
+// Fungsi ini akan membuat subfolder DI DALAM root folder (Shared Folder)
+async function getOrCreateFolder(name, parentId) {
+  const q = `name='${name}' and mimeType='application/vnd.google-apps.folder' and '${parentId}' in parents and trashed=false`;
   const res = await window.gapi.client.drive.files.list({
     q,
     fields: "files(id,name)",
@@ -844,26 +848,21 @@ async function getOrCreateFolder(name, parentId = null) {
     resource: {
       name,
       mimeType: "application/vnd.google-apps.folder",
-      ...(parentId ? { parents: [parentId] } : {}),
+      parents: [parentId],
     },
     fields: "id",
   });
   return created.result.id;
 }
 
-// FUNGSI DIPERBAIKI: Memakai Blob dan urutan pembuatan file yang 100% didukung Google Drive
 async function saveDocDataToDrive(dataObj) {
   try {
-    const rootId = await getOrCreateFolder(FOLDER_ROOT_NAME);
-    const q = `name='${META_FILE_NAME}' and '${rootId}' in parents and trashed=false`;
+    const q = `name='${META_FILE_NAME}' and '${SHARED_ROOT_ID}' in parents and trashed=false`;
     const listRes = await window.gapi.client.drive.files.list({
       q,
       fields: "files(id)",
     });
-
     const token = window.gapi.client.getToken().access_token;
-
-    // Ubah ke Blob supaya Drive bisa baca format ini tanpa bug 0 bytes
     const blob = new Blob([JSON.stringify(dataObj)], {
       type: "application/json",
     });
@@ -872,11 +871,10 @@ async function saveDocDataToDrive(dataObj) {
     if (listRes.result.files.length > 0) {
       fileId = listRes.result.files[0].id;
     } else {
-      // Buat metadata kosong duluan
       const created = await window.gapi.client.drive.files.create({
         resource: {
           name: META_FILE_NAME,
-          parents: [rootId],
+          parents: [SHARED_ROOT_ID],
           mimeType: "application/json",
         },
         fields: "id",
@@ -884,31 +882,25 @@ async function saveDocDataToDrive(dataObj) {
       fileId = created.result.id;
     }
 
-    // Suntikkan konten Blob ke dalam ID yang sudah ada
     const res = await fetch(
       `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`,
       {
         method: "PATCH",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
+        headers: { Authorization: `Bearer ${token}` },
         body: blob,
       },
     );
 
-    if (!res.ok) {
+    if (!res.ok)
       console.error("Gagal mengisi data ke file JSON:", await res.text());
-    }
   } catch (error) {
     console.error("Gagal sinkronisasi data ke Drive:", error);
   }
 }
 
-// FUNGSI DIPERBAIKI: Cache-Busting ditambahkan agar Chrome tidak load data lawas
 async function fetchDocDataFromDrive() {
   try {
-    const rootId = await getOrCreateFolder(FOLDER_ROOT_NAME);
-    const q = `name='${META_FILE_NAME}' and '${rootId}' in parents and trashed=false`;
+    const q = `name='${META_FILE_NAME}' and '${SHARED_ROOT_ID}' in parents and trashed=false`;
     const listRes = await window.gapi.client.drive.files.list({
       q,
       fields: "files(id)",
@@ -928,9 +920,7 @@ async function fetchDocDataFromDrive() {
         },
       );
 
-      if (res.ok) {
-        return await res.json();
-      }
+      if (res.ok) return await res.json();
     }
   } catch (error) {
     console.error("Gagal menarik data dari Drive:", error);
@@ -945,8 +935,12 @@ async function uploadFileToDrive(file, subId, tabKey, indicatorTitle, subText) {
   const indFolderName = `${indNum}. ${indicatorTitle}`;
   const subFolderName =
     subText.length > 60 ? subText.substring(0, 60).trimEnd() + "…" : subText;
-  const rootId = await getOrCreateFolder(FOLDER_ROOT_NAME);
-  const pengungkitId = await getOrCreateFolder(FOLDER_PENGUNGKIT, rootId);
+
+  // Semua hierarki sekarang berada di dalam SHARED_ROOT_ID
+  const pengungkitId = await getOrCreateFolder(
+    FOLDER_PENGUNGKIT,
+    SHARED_ROOT_ID,
+  );
   const tabId = await getOrCreateFolder(TAB_FOLDER[tabKey], pengungkitId);
   const pillarFId = await getOrCreateFolder(
     PILLAR_FOLDER[pillarId] || pillarId,
@@ -954,6 +948,7 @@ async function uploadFileToDrive(file, subId, tabKey, indicatorTitle, subText) {
   );
   const indFId = await getOrCreateFolder(indFolderName, pillarFId);
   const subFolderId = await getOrCreateFolder(subFolderName, indFId);
+
   const buffer = await file.arrayBuffer();
   const boundary = "aziapp_" + Date.now();
   const enc = new TextEncoder();
@@ -973,6 +968,7 @@ async function uploadFileToDrive(file, subId, tabKey, indicatorTitle, subText) {
     body.set(p, off);
     off += p.byteLength;
   });
+
   const token = window.gapi.client.getToken().access_token;
   const res = await fetch(
     "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id,name,webViewLink,webContentLink",
@@ -1201,7 +1197,6 @@ export default function DashboardZI() {
     return {};
   });
 
-  // TAMBAHAN BARU: Memastikan data "Live" selalu tersedia untuk operasi async
   const docDataRef = useRef(docData);
   useEffect(() => {
     docDataRef.current = docData;
@@ -1222,7 +1217,6 @@ export default function DashboardZI() {
           setDocData(driveData);
           setIsSyncing(false);
         } else {
-          // Jika Drive kosong tapi LocalStorage ada isinya, auto-push!
           if (Object.keys(docDataRef.current).length > 0) {
             saveDocDataToDrive(docDataRef.current).then(() =>
               setIsSyncing(false),
@@ -1255,6 +1249,10 @@ export default function DashboardZI() {
       alert("Silakan login ke Google terlebih dahulu.");
       return;
     }
+    if (SHARED_ROOT_ID === "MASUKKAN_ID_FOLDER_DI_SINI") {
+      alert("Anda belum memasukkan Folder ID Shared di dalam kode!");
+      return;
+    }
 
     setUploadingIds((p) => ({ ...p, [subId]: true }));
     const newFiles = [];
@@ -1283,13 +1281,11 @@ export default function DashboardZI() {
     }
 
     if (newFiles.length) {
-      // Ambil objek terbaru dari ref (Menghindari undefined/kosong saat multi-upload)
       const updatedData = { ...docDataRef.current };
       const ex = Array.isArray(updatedData[subId]) ? updatedData[subId] : [];
       updatedData[subId] = [...ex, ...newFiles];
 
-      setDocData(updatedData); // Refresh UI
-
+      setDocData(updatedData);
       setIsSyncing(true);
       saveDocDataToDrive(updatedData).then(() => setIsSyncing(false));
     }
@@ -1303,7 +1299,6 @@ export default function DashboardZI() {
       await deleteFileFromDrive(file.driveFileId);
     } catch {}
 
-    // Sama seperti upload, ambil data dari ref
     const updatedData = { ...docDataRef.current };
     const u = (updatedData[subId] || []).filter((f) => f.id !== file.id);
 
@@ -1314,7 +1309,6 @@ export default function DashboardZI() {
     }
 
     setDocData(updatedData);
-
     setIsSyncing(true);
     saveDocDataToDrive(updatedData).then(() => setIsSyncing(false));
   };
