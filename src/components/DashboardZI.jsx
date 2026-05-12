@@ -22,7 +22,7 @@ const GOOGLE_CLIENT_ID =
   "261773148186-1co5gre3f7sqq8q3s04uddlfj3nqakv3.apps.googleusercontent.com";
 const SCOPES = "https://www.googleapis.com/auth/drive.file";
 const FOLDER_ROOT_NAME = "BUKTI DUKUNG ZI 2026";
-const META_FILE_NAME = "zi_doc_meta.json"; // File database kita
+const META_FILE_NAME = "zi_doc_meta.json";
 const FOLDER_PENGUNGKIT = "A. PENGUNGKIT";
 const TAB_FOLDER = { A: "I. PEMENUHAN", B: "II. REFORM" };
 const PILLAR_FOLDER = {
@@ -823,6 +823,7 @@ function loadGoogleScripts() {
     Promise.all([a, b]).then(resolve);
   });
 }
+
 async function loadDriveDiscovery() {
   if (window._driveDiscoveryLoaded) return;
   await window.gapi.client.load("drive", "v3");
@@ -850,7 +851,7 @@ async function getOrCreateFolder(name, parentId = null) {
   return created.result.id;
 }
 
-// FUNGSI BARU: Simpan Database (JSON) ke Drive (Diperbaiki agar 100% Stabil)
+// FUNGSI DIPERBAIKI: Memakai Blob dan urutan pembuatan file yang 100% didukung Google Drive
 async function saveDocDataToDrive(dataObj) {
   try {
     const rootId = await getOrCreateFolder(FOLDER_ROOT_NAME);
@@ -861,15 +862,17 @@ async function saveDocDataToDrive(dataObj) {
     });
 
     const token = window.gapi.client.getToken().access_token;
-    const fileContent = JSON.stringify(dataObj);
+
+    // Ubah ke Blob supaya Drive bisa baca format ini tanpa bug 0 bytes
+    const blob = new Blob([JSON.stringify(dataObj)], {
+      type: "application/json",
+    });
 
     let fileId;
-
     if (listRes.result.files.length > 0) {
-      // Jika file sudah ada, ambil ID-nya
       fileId = listRes.result.files[0].id;
     } else {
-      // Jika file belum ada, BUAT metadata file kosong terlebih dahulu via GAPI (sangat stabil)
+      // Buat metadata kosong duluan
       const created = await window.gapi.client.drive.files.create({
         resource: {
           name: META_FILE_NAME,
@@ -881,16 +884,15 @@ async function saveDocDataToDrive(dataObj) {
       fileId = created.result.id;
     }
 
-    // UPDATE isi file tersebut dengan string JSON kita
+    // Suntikkan konten Blob ke dalam ID yang sudah ada
     const res = await fetch(
       `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`,
       {
         method: "PATCH",
         headers: {
           Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
         },
-        body: fileContent,
+        body: blob,
       },
     );
 
@@ -902,7 +904,7 @@ async function saveDocDataToDrive(dataObj) {
   }
 }
 
-// FUNGSI BARU: Ambil Database (JSON) dari Drive
+// FUNGSI DIPERBAIKI: Cache-Busting ditambahkan agar Chrome tidak load data lawas
 async function fetchDocDataFromDrive() {
   try {
     const rootId = await getOrCreateFolder(FOLDER_ROOT_NAME);
@@ -916,13 +918,12 @@ async function fetchDocDataFromDrive() {
       const fileId = listRes.result.files[0].id;
       const token = window.gapi.client.getToken().access_token;
 
-      // Tambahkan Date.now() di URL untuk mem-bypass cache browser
       const res = await fetch(
         `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&t=${Date.now()}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
-            "Cache-Control": "no-cache", // Memaksa browser meminta data terbaru
+            "Cache-Control": "no-cache",
           },
         },
       );
@@ -1045,7 +1046,6 @@ function useGoogleAuth() {
   return { authStatus, userInfo, signIn, signOut };
 }
 
-// ── Gauge ──
 function Gauge({ value }) {
   const [v, setV] = useState(0);
   const raf = useRef(null);
@@ -1201,39 +1201,35 @@ export default function DashboardZI() {
     return {};
   });
 
-  const { authStatus, userInfo, signIn, signOut } = useGoogleAuth();
-  const isConnected = authStatus === "connected";
-
-  // Simpan ke localStorage sebagai backup
+  // TAMBAHAN BARU: Memastikan data "Live" selalu tersedia untuk operasi async
+  const docDataRef = useRef(docData);
   useEffect(() => {
+    docDataRef.current = docData;
     try {
       localStorage.setItem("zi_drive_meta_v2", JSON.stringify(docData));
     } catch {}
   }, [docData]);
 
-  // Tarik data dari Google Drive setelah berhasil login
+  const { authStatus, userInfo, signIn, signOut } = useGoogleAuth();
+  const isConnected = authStatus === "connected";
+
+  // Tarik data saat berhasil login
   useEffect(() => {
     if (isConnected) {
       setIsSyncing(true);
       fetchDocDataFromDrive().then((driveData) => {
         if (driveData) {
-          // Jika ada data di Drive, langsung pakai data dari Drive
           setDocData(driveData);
           setIsSyncing(false);
         } else {
-          // JIKA DRIVE KOSONG (File belum ada)
-          // Cek apakah di browser lokal ini ada progres lama
-          setDocData((currentLocalData) => {
-            if (Object.keys(currentLocalData).length > 0) {
-              // Jika ada progres lama, otomatis dorong/upload ke Drive sekarang!
-              saveDocDataToDrive(currentLocalData).then(() =>
-                setIsSyncing(false),
-              );
-            } else {
-              setIsSyncing(false);
-            }
-            return currentLocalData;
-          });
+          // Jika Drive kosong tapi LocalStorage ada isinya, auto-push!
+          if (Object.keys(docDataRef.current).length > 0) {
+            saveDocDataToDrive(docDataRef.current).then(() =>
+              setIsSyncing(false),
+            );
+          } else {
+            setIsSyncing(false);
+          }
         }
       });
     }
@@ -1259,8 +1255,10 @@ export default function DashboardZI() {
       alert("Silakan login ke Google terlebih dahulu.");
       return;
     }
+
     setUploadingIds((p) => ({ ...p, [subId]: true }));
     const newFiles = [];
+
     for (const file of files) {
       try {
         const r = await uploadFileToDrive(
@@ -1285,15 +1283,15 @@ export default function DashboardZI() {
     }
 
     if (newFiles.length) {
-      let finalData;
-      setDocData((p) => {
-        const ex = Array.isArray(p[subId]) ? p[subId] : [];
-        finalData = { ...p, [subId]: [...ex, ...newFiles] };
-        return finalData;
-      });
-      // Sinkronkan ke Drive secara background
+      // Ambil objek terbaru dari ref (Menghindari undefined/kosong saat multi-upload)
+      const updatedData = { ...docDataRef.current };
+      const ex = Array.isArray(updatedData[subId]) ? updatedData[subId] : [];
+      updatedData[subId] = [...ex, ...newFiles];
+
+      setDocData(updatedData); // Refresh UI
+
       setIsSyncing(true);
-      saveDocDataToDrive(finalData).then(() => setIsSyncing(false));
+      saveDocDataToDrive(updatedData).then(() => setIsSyncing(false));
     }
 
     setUploadingIds((p) => ({ ...p, [subId]: false }));
@@ -1305,22 +1303,20 @@ export default function DashboardZI() {
       await deleteFileFromDrive(file.driveFileId);
     } catch {}
 
-    let finalData;
-    setDocData((p) => {
-      const u = (p[subId] || []).filter((f) => f.id !== file.id);
-      if (!u.length) {
-        const n = { ...p };
-        delete n[subId];
-        finalData = n;
-        return n;
-      }
-      finalData = { ...p, [subId]: u };
-      return finalData;
-    });
+    // Sama seperti upload, ambil data dari ref
+    const updatedData = { ...docDataRef.current };
+    const u = (updatedData[subId] || []).filter((f) => f.id !== file.id);
 
-    // Sinkronkan ke Drive secara background
+    if (!u.length) {
+      delete updatedData[subId];
+    } else {
+      updatedData[subId] = u;
+    }
+
+    setDocData(updatedData);
+
     setIsSyncing(true);
-    saveDocDataToDrive(finalData).then(() => setIsSyncing(false));
+    saveDocDataToDrive(updatedData).then(() => setIsSyncing(false));
   };
 
   const resetData = () => {
@@ -1331,7 +1327,6 @@ export default function DashboardZI() {
     )
       return;
     setDocData({});
-    localStorage.removeItem("zi_drive_meta_v2");
     if (isConnected) {
       setIsSyncing(true);
       saveDocDataToDrive({}).then(() => setIsSyncing(false));
