@@ -38,6 +38,50 @@ const PILLAR_FOLDER = {
   "B-V": "V. PENGUATAN PENGAWASAN",
   "B-VI": "VI. PENINGKATAN KUALITAS PELAYANAN PUBLIK",
 };
+const PILLAR_ACCENTS = [
+  {
+    color: "#0f766e",
+    light: "#f0fdfa",
+    border: "#99f6e4",
+    text: "#134e4a",
+    bar: "#14b8a6",
+  },
+  {
+    color: "#1d4ed8",
+    light: "#eff6ff",
+    border: "#bfdbfe",
+    text: "#1e3a8a",
+    bar: "#3b82f6",
+  },
+  {
+    color: "#6d28d9",
+    light: "#f5f3ff",
+    border: "#ddd6fe",
+    text: "#4c1d95",
+    bar: "#8b5cf6",
+  },
+  {
+    color: "#b45309",
+    light: "#fffbeb",
+    border: "#fde68a",
+    text: "#78350f",
+    bar: "#d97706",
+  },
+  {
+    color: "#be123c",
+    light: "#fff1f2",
+    border: "#fecdd3",
+    text: "#881337",
+    bar: "#e11d48",
+  },
+  {
+    color: "#0369a1",
+    light: "#f0f9ff",
+    border: "#bae6fd",
+    text: "#0c4a6e",
+    bar: "#0284c7",
+  },
+];
 
 const ZI_DATA = {
   A: {
@@ -741,52 +785,7 @@ const ZI_DATA = {
   },
 };
 
-const PILLAR_ACCENTS = [
-  {
-    color: "#0f766e",
-    light: "#f0fdfa",
-    border: "#99f6e4",
-    text: "#134e4a",
-    bar: "#14b8a6",
-  },
-  {
-    color: "#1d4ed8",
-    light: "#eff6ff",
-    border: "#bfdbfe",
-    text: "#1e3a8a",
-    bar: "#3b82f6",
-  },
-  {
-    color: "#6d28d9",
-    light: "#f5f3ff",
-    border: "#ddd6fe",
-    text: "#4c1d95",
-    bar: "#8b5cf6",
-  },
-  {
-    color: "#b45309",
-    light: "#fffbeb",
-    border: "#fde68a",
-    text: "#78350f",
-    bar: "#d97706",
-  },
-  {
-    color: "#be123c",
-    light: "#fff1f2",
-    border: "#fecdd3",
-    text: "#881337",
-    bar: "#e11d48",
-  },
-  {
-    color: "#0369a1",
-    light: "#f0f9ff",
-    border: "#bae6fd",
-    text: "#0c4a6e",
-    bar: "#0284c7",
-  },
-];
-
-// ── Google Drive ──
+// ── Google Drive helpers ──
 function loadGoogleScripts() {
   return new Promise((resolve) => {
     if (window._gapiLoaded && window._gisLoaded) {
@@ -955,7 +954,7 @@ function useGoogleAuth() {
   return { authStatus, userInfo, signIn, signOut };
 }
 
-// ── Animated gauge ──
+// ── Gauge ──
 function Gauge({ value }) {
   const [v, setV] = useState(0);
   const raf = useRef(null);
@@ -972,11 +971,10 @@ function Gauge({ value }) {
     raf.current = requestAnimationFrame(run);
     return () => cancelAnimationFrame(raf.current);
   }, [value]);
-
-  const cx = 80,
-    cy = 80,
-    r = 60;
-  const sa = -215,
+  const cx = 100,
+    cy = 100,
+    r = 75,
+    sa = -215,
     ta = 250;
   const polar = (a, rad) => ({
     x: cx + rad * Math.cos((a * Math.PI) / 180),
@@ -988,18 +986,38 @@ function Gauge({ value }) {
     return `M${s.x} ${s.y} A${rad} ${rad} 0 ${sw > 180 ? 1 : 0} 1 ${e.x} ${e.y}`;
   };
   const nAngle = sa + (v / 100) * ta;
-  const nTip = polar(nAngle, r - 10);
-  const nb1 = polar(nAngle + 90, 5),
-    nb2 = polar(nAngle - 90, 5);
+  const nTip = polar(nAngle, r - 12),
+    nb1 = polar(nAngle + 90, 7),
+    nb2 = polar(nAngle - 90, 7);
   const gc = v < 40 ? "#e11d48" : v < 70 ? "#d97706" : "#059669";
-
   return (
-    <svg viewBox="0 0 160 130" style={{ width: "100%", maxWidth: 190 }}>
+    <svg viewBox="0 0 200 160" style={{ width: "100%", maxWidth: 220 }}>
       <path
         d={arc(sa, ta, r)}
         fill="none"
         stroke="rgba(255,255,255,0.07)"
-        strokeWidth="10"
+        strokeWidth="13"
+        strokeLinecap="round"
+      />
+      <path
+        d={arc(sa, ta * 0.4, r)}
+        fill="none"
+        stroke="rgba(225,29,72,0.15)"
+        strokeWidth="13"
+        strokeLinecap="butt"
+      />
+      <path
+        d={arc(sa + ta * 0.4, ta * 0.3, r)}
+        fill="none"
+        stroke="rgba(217,119,6,0.15)"
+        strokeWidth="13"
+        strokeLinecap="butt"
+      />
+      <path
+        d={arc(sa + ta * 0.7, ta * 0.3, r)}
+        fill="none"
+        stroke="rgba(5,150,105,0.15)"
+        strokeWidth="13"
         strokeLinecap="round"
       />
       {v > 0 && (
@@ -1007,21 +1025,50 @@ function Gauge({ value }) {
           d={arc(sa, (v / 100) * ta, r)}
           fill="none"
           stroke={gc}
-          strokeWidth="10"
+          strokeWidth="13"
           strokeLinecap="round"
         />
       )}
+      {[0, 25, 50, 75, 100].map((t) => {
+        const ang = sa + (t / 100) * ta;
+        const inn = polar(ang, r - 9),
+          out = polar(ang, r + 4),
+          lbl = polar(ang, r + 16);
+        return (
+          <g key={t}>
+            <line
+              x1={inn.x}
+              y1={inn.y}
+              x2={out.x}
+              y2={out.y}
+              stroke="rgba(255,255,255,0.2)"
+              strokeWidth="1.5"
+            />
+            <text
+              x={lbl.x}
+              y={lbl.y}
+              textAnchor="middle"
+              dominantBaseline="middle"
+              fontSize="8"
+              fill="rgba(255,255,255,0.3)"
+              fontFamily="sans-serif"
+            >
+              {t}
+            </text>
+          </g>
+        );
+      })}
       <polygon
         points={`${nTip.x},${nTip.y} ${nb1.x},${nb1.y} ${nb2.x},${nb2.y}`}
         fill="#94a3b8"
       />
-      <circle cx={cx} cy={cy} r="5" fill="#1e293b" />
-      <circle cx={cx} cy={cy} r="2.5" fill="#475569" />
+      <circle cx={cx} cy={cy} r="7" fill="#1e293b" />
+      <circle cx={cx} cy={cy} r="3.5" fill="#475569" />
       <text
         x={cx}
-        y={cy + 26}
+        y={cy + 30}
         textAnchor="middle"
-        fontSize="24"
+        fontSize="30"
         fontWeight="700"
         fill={gc}
         fontFamily="'DM Sans',sans-serif"
@@ -1030,9 +1077,9 @@ function Gauge({ value }) {
       </text>
       <text
         x={cx}
-        y={cy + 41}
+        y={cy + 48}
         textAnchor="middle"
-        fontSize="8.5"
+        fontSize="9"
         fill="#475569"
         fontFamily="sans-serif"
       >
@@ -1054,7 +1101,6 @@ export default function DashboardZI() {
   const [expandedPillar, setExpandedPillar] = useState(null);
   const [expandedIndicator, setExpandedIndicator] = useState(null);
   const [uploadingIds, setUploadingIds] = useState({});
-
   const [docData, setDocData] = useState(() => {
     try {
       const s = localStorage.getItem("zi_drive_meta_v2");
@@ -1122,7 +1168,6 @@ export default function DashboardZI() {
       });
     setUploadingIds((p) => ({ ...p, [subId]: false }));
   };
-
   const handleDelete = async (subId, file) => {
     if (!confirm(`Hapus "${file.fileName}" dari Drive?`)) return;
     try {
@@ -1138,7 +1183,6 @@ export default function DashboardZI() {
       return { ...p, [subId]: u };
     });
   };
-
   const resetData = () => {
     if (
       !confirm(
@@ -1151,22 +1195,23 @@ export default function DashboardZI() {
   };
 
   const now = new Date();
-  const BULAN = [
-    "Jan",
-    "Feb",
-    "Mar",
-    "Apr",
+  const HARI = ["Minggu", "Senin", "Selasa", "Rabu", "Kamis", "Jumat", "Sabtu"];
+  const BULAN_FULL = [
+    "Januari",
+    "Februari",
+    "Maret",
+    "April",
     "Mei",
-    "Jun",
-    "Jul",
-    "Agu",
-    "Sep",
-    "Okt",
-    "Nov",
-    "Des",
+    "Juni",
+    "Juli",
+    "Agustus",
+    "September",
+    "Oktober",
+    "November",
+    "Desember",
   ];
-  const dateStr = `${now.getDate()} ${BULAN[now.getMonth()]} ${now.getFullYear()}`;
   const twNum = Math.ceil((now.getMonth() + 1) / 3);
+  const twMap = { 1: "Jan–Mar", 2: "Apr–Jun", 3: "Jul–Sep", 4: "Okt–Des" };
 
   const totalSubs = ZI_DATA[activeTab].pillars.reduce(
     (a, p) => a + p.indicators.reduce((b, i) => b + i.subs.length, 0),
@@ -1188,11 +1233,12 @@ export default function DashboardZI() {
     progress: calcProgress(p.indicators),
   }));
 
+  // KEY FIX: position:fixed + inset:0 agar benar-benar fullscreen tanpa dipengaruhi body margin/padding
   return (
     <div
       style={{
-        height: "100vh",
-        width: "100vw",
+        position: "fixed",
+        inset: 0,
         display: "flex",
         flexDirection: "column",
         overflow: "hidden",
@@ -1201,6 +1247,154 @@ export default function DashboardZI() {
         color: "#0f172a",
       }}
     >
+      {/* ── KALENDER & TRIWULAN ── */}
+      <div
+        style={{
+          background:
+            "linear-gradient(135deg,#1e3a8a 0%,#1d4ed8 60%,#2563eb 100%)",
+          flexShrink: 0,
+          padding: "10px 24px",
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "space-between",
+        }}
+      >
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
+          <div
+            style={{
+              background: "rgba(255,255,255,0.12)",
+              border: "1px solid rgba(255,255,255,0.2)",
+              borderRadius: 12,
+              padding: "8px 20px",
+              display: "flex",
+              alignItems: "center",
+              gap: 14,
+            }}
+          >
+            <div style={{ textAlign: "center" }}>
+              <div
+                style={{
+                  color: "rgba(255,255,255,0.6)",
+                  fontSize: 11,
+                  fontWeight: 600,
+                  letterSpacing: 1,
+                  textTransform: "uppercase",
+                }}
+              >
+                {HARI[now.getDay()]}
+              </div>
+              <div
+                style={{
+                  color: "#fff",
+                  fontSize: 34,
+                  fontWeight: 800,
+                  lineHeight: 1,
+                  letterSpacing: -1,
+                }}
+              >
+                {now.getDate()}
+              </div>
+            </div>
+            <div
+              style={{
+                width: 1,
+                height: 42,
+                background: "rgba(255,255,255,0.2)",
+              }}
+            />
+            <div>
+              <div style={{ color: "#fff", fontSize: 15, fontWeight: 700 }}>
+                {BULAN_FULL[now.getMonth()]}
+              </div>
+              <div
+                style={{
+                  color: "rgba(255,255,255,0.55)",
+                  fontSize: 13,
+                  fontWeight: 500,
+                }}
+              >
+                {now.getFullYear()}
+              </div>
+            </div>
+          </div>
+        </div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span
+            style={{
+              color: "rgba(255,255,255,0.4)",
+              fontSize: 10,
+              fontWeight: 600,
+              letterSpacing: 1.2,
+              textTransform: "uppercase",
+              marginRight: 4,
+            }}
+          >
+            Triwulan
+          </span>
+          {[1, 2, 3, 4].map((tw) => (
+            <div
+              key={tw}
+              style={{
+                display: "flex",
+                flexDirection: "column",
+                alignItems: "center",
+                padding: "7px 15px",
+                borderRadius: 10,
+                border:
+                  tw === twNum
+                    ? "1.5px solid #fff"
+                    : "1px solid rgba(255,255,255,0.18)",
+                background: tw === twNum ? "#fff" : "rgba(255,255,255,0.08)",
+              }}
+            >
+              <span
+                style={{
+                  fontSize: 12,
+                  fontWeight: 800,
+                  color: tw === twNum ? "#1d4ed8" : "rgba(255,255,255,0.5)",
+                  letterSpacing: 0.3,
+                }}
+              >
+                TW {tw}
+              </span>
+              <span
+                style={{
+                  fontSize: 9,
+                  color: tw === twNum ? "#3b82f6" : "rgba(255,255,255,0.35)",
+                  fontWeight: 500,
+                }}
+              >
+                {twMap[tw]}
+              </span>
+            </div>
+          ))}
+          <div
+            style={{
+              marginLeft: 4,
+              background: "rgba(255,255,255,0.12)",
+              border: "1px solid rgba(255,255,255,0.2)",
+              borderRadius: 10,
+              padding: "7px 15px",
+              textAlign: "center",
+            }}
+          >
+            <div
+              style={{
+                color: "rgba(255,255,255,0.45)",
+                fontSize: 9,
+                fontWeight: 600,
+                letterSpacing: 1,
+              }}
+            >
+              TAHUN
+            </div>
+            <div style={{ color: "#fff", fontSize: 15, fontWeight: 800 }}>
+              {now.getFullYear()}
+            </div>
+          </div>
+        </div>
+      </div>
+
       {/* ── TOPBAR ── */}
       <header
         style={{
@@ -1209,27 +1403,25 @@ export default function DashboardZI() {
           flexShrink: 0,
           display: "flex",
           alignItems: "center",
-          paddingInline: 20,
-          gap: 0,
+          paddingInline: 24,
           zIndex: 50,
         }}
       >
-        {/* Brand */}
         <div
           style={{
             display: "flex",
             alignItems: "center",
-            gap: 9,
-            paddingRight: 20,
+            gap: 10,
+            paddingRight: 18,
             borderRight: "1px solid rgba(255,255,255,0.08)",
-            marginRight: 16,
+            marginRight: 18,
           }}
         >
           <div
             style={{
               width: 30,
               height: 30,
-              borderRadius: 8,
+              borderRadius: 7,
               background: "rgba(59,130,246,0.15)",
               border: "1px solid rgba(59,130,246,0.3)",
               display: "flex",
@@ -1250,49 +1442,12 @@ export default function DashboardZI() {
             >
               AZIAPP
             </div>
-            <div
-              style={{
-                color: "#475569",
-                fontSize: 9,
-                letterSpacing: 1.2,
-                lineHeight: 1,
-              }}
-            >
+            <div style={{ color: "#475569", fontSize: 9, letterSpacing: 1.2 }}>
               ZONA INTEGRITAS 2026
             </div>
           </div>
         </div>
-
-        {/* Date + Quarter */}
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 8,
-            marginRight: 20,
-            paddingRight: 20,
-            borderRight: "1px solid rgba(255,255,255,0.06)",
-          }}
-        >
-          <span style={{ fontSize: 11, color: "#64748b" }}>{dateStr}</span>
-          <span
-            style={{
-              background: "rgba(59,130,246,0.12)",
-              border: "1px solid rgba(59,130,246,0.25)",
-              borderRadius: 4,
-              padding: "1px 7px",
-              fontSize: 10,
-              color: "#60a5fa",
-              fontWeight: 700,
-              letterSpacing: 0.3,
-            }}
-          >
-            TW {twNum}
-          </span>
-        </div>
-
-        {/* Tabs */}
-        <div style={{ display: "flex", gap: 1, flex: 1 }}>
+        <div style={{ display: "flex", gap: 2, flex: 1 }}>
           {["A", "B"].map((tab) => (
             <button
               key={tab}
@@ -1302,7 +1457,7 @@ export default function DashboardZI() {
                 setExpandedIndicator(null);
               }}
               style={{
-                padding: "0 16px",
+                padding: "0 18px",
                 height: 36,
                 borderRadius: 6,
                 border: "none",
@@ -1317,14 +1472,13 @@ export default function DashboardZI() {
                   activeTab === tab
                     ? "2px solid #3b82f6"
                     : "2px solid transparent",
+                fontFamily: "inherit",
               }}
             >
               {tab === "A" ? "A · Pemenuhan" : "B · Reform"}
             </button>
           ))}
         </div>
-
-        {/* Auth controls */}
         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
           {isConnected ? (
             <>
@@ -1341,8 +1495,8 @@ export default function DashboardZI() {
               >
                 <div
                   style={{
-                    width: 5,
-                    height: 5,
+                    width: 6,
+                    height: 6,
                     borderRadius: "50%",
                     background: "#10b981",
                   }}
@@ -1406,7 +1560,7 @@ export default function DashboardZI() {
                 />
               ) : (
                 <LogIn size={11} />
-              )}
+              )}{" "}
               Masuk Google
             </button>
           )}
@@ -1432,11 +1586,13 @@ export default function DashboardZI() {
       </header>
 
       {/* ── BODY ── */}
-      <div style={{ display: "flex", flex: 1, overflow: "hidden" }}>
+      <div
+        style={{ display: "flex", flex: 1, overflow: "hidden", minHeight: 0 }}
+      >
         {/* ── SIDEBAR ── */}
         <aside
           style={{
-            width: 252,
+            width: 260,
             flexShrink: 0,
             background: "#1e293b",
             display: "flex",
@@ -1469,8 +1625,6 @@ export default function DashboardZI() {
               </span>
             </div>
           )}
-
-          {/* Progress gauge */}
           <div
             style={{
               padding: "14px 14px 6px",
@@ -1492,12 +1646,11 @@ export default function DashboardZI() {
             <div style={{ display: "flex", justifyContent: "center" }}>
               <Gauge value={totalPct} />
             </div>
-            {/* Stats row */}
             <div
               style={{
                 display: "flex",
                 justifyContent: "center",
-                gap: 20,
+                gap: 22,
                 paddingBottom: 10,
               }}
             >
@@ -1509,7 +1662,7 @@ export default function DashboardZI() {
                 <div key={label} style={{ textAlign: "center" }}>
                   <div
                     style={{
-                      fontSize: 17,
+                      fontSize: 18,
                       fontWeight: 700,
                       color: col,
                       lineHeight: 1.1,
@@ -1531,8 +1684,6 @@ export default function DashboardZI() {
               ))}
             </div>
           </div>
-
-          {/* Per-pillar bars */}
           <div style={{ flex: 1, overflowY: "auto", padding: "12px 14px" }}>
             <div
               style={{
@@ -1602,8 +1753,6 @@ export default function DashboardZI() {
               })}
             </div>
           </div>
-
-          {/* Drive status */}
           <div
             style={{
               padding: "10px 14px",
@@ -1620,17 +1769,24 @@ export default function DashboardZI() {
                 fontWeight: 500,
               }}
             >
-              {isConnected ? <FolderSync size={11} /> : <CloudOff size={11} />}
+              {isConnected ? <FolderSync size={11} /> : <CloudOff size={11} />}{" "}
               {isConnected ? "Terhubung ke Google Drive" : "Belum terhubung"}
             </div>
           </div>
         </aside>
 
-        {/* ── MAIN CONTENT ── */}
-        <main style={{ flex: 1, overflowY: "auto", padding: "20px 22px" }}>
+        {/* ── MAIN ── */}
+        <main
+          style={{
+            flex: 1,
+            overflowY: "auto",
+            padding: "18px 22px",
+            minWidth: 0,
+          }}
+        >
           <div
             style={{
-              marginBottom: 16,
+              marginBottom: 14,
               display: "flex",
               alignItems: "flex-end",
               justifyContent: "space-between",
@@ -1643,7 +1799,6 @@ export default function DashboardZI() {
                   fontSize: 15,
                   fontWeight: 700,
                   color: "#0f172a",
-                  letterSpacing: 0.1,
                 }}
               >
                 {activeTab === "A" ? "A. Pemenuhan" : "B. Reform"} — Bukti
@@ -1654,10 +1809,9 @@ export default function DashboardZI() {
               </p>
             </div>
             <div style={{ fontSize: 11, color: "#94a3b8", fontWeight: 500 }}>
-              {doneSubs} / {totalSubs} sub-indikator
+              {doneSubs}/{totalSubs} sub-indikator
             </div>
           </div>
-
           <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
             {ZI_DATA[activeTab].pillars.map((pillar, index) => {
               const ac = PILLAR_ACCENTS[index % PILLAR_ACCENTS.length];
@@ -1672,22 +1826,20 @@ export default function DashboardZI() {
                 (a, i) => a + i.subs.length,
                 0,
               );
-
               return (
                 <div
                   key={pillar.id}
                   style={{
-                    background: "#ffffff",
+                    background: "#fff",
                     borderRadius: 10,
                     border: `1px solid ${isPillarOpen ? ac.color + "55" : "#e2e8f0"}`,
                     overflow: "hidden",
                     boxShadow: isPillarOpen
                       ? `0 4px 20px ${ac.color}10`
                       : "0 1px 3px rgba(0,0,0,0.05)",
-                    transition: "all 0.2s ease",
+                    transition: "all 0.2s",
                   }}
                 >
-                  {/* Pillar header */}
                   <div
                     onClick={() =>
                       setExpandedPillar(isPillarOpen ? null : pillar.id)
@@ -1736,7 +1888,6 @@ export default function DashboardZI() {
                             fontSize: 13,
                             fontWeight: 700,
                             color: isPillarOpen ? ac.text : "#0f172a",
-                            transition: "color 0.2s",
                           }}
                         >
                           {pillar.title}
@@ -1748,8 +1899,8 @@ export default function DashboardZI() {
                             marginTop: 1,
                           }}
                         >
-                          {pillar.indicators.length} indikator &nbsp;·&nbsp;{" "}
-                          {pillarDone}/{pillarTotal} sub-indikator
+                          {pillar.indicators.length} indikator · {pillarDone}/
+                          {pillarTotal} sub-indikator
                         </div>
                       </div>
                     </div>
@@ -1776,7 +1927,8 @@ export default function DashboardZI() {
                             padding: "2px 8px",
                           }}
                         >
-                          <CheckCircle2 size={11} /> Lengkap
+                          <CheckCircle2 size={11} />
+                          Lengkap
                         </div>
                       )}
                       <div
@@ -1794,7 +1946,7 @@ export default function DashboardZI() {
                             height: "100%",
                             background: ac.bar,
                             borderRadius: 99,
-                            transition: "width 0.6s ease",
+                            transition: "width 0.6s",
                           }}
                         />
                       </div>
@@ -1811,8 +1963,6 @@ export default function DashboardZI() {
                       </span>
                     </div>
                   </div>
-
-                  {/* Indicators */}
                   {isPillarOpen && (
                     <div
                       style={{
@@ -1834,7 +1984,6 @@ export default function DashboardZI() {
                           ).length;
                           const indTotal = indicator.subs.length;
                           const allDone = indDone === indTotal;
-
                           return (
                             <div
                               key={indicator.id}
@@ -1843,7 +1992,6 @@ export default function DashboardZI() {
                                 border: `1px solid ${isIndOpen ? ac.color + "45" : "#e9edf2"}`,
                                 borderRadius: 8,
                                 overflow: "hidden",
-                                transition: "border-color 0.2s",
                               }}
                             >
                               <div
@@ -1861,7 +2009,6 @@ export default function DashboardZI() {
                                   background: isIndOpen
                                     ? ac.light + "70"
                                     : "#fff",
-                                  transition: "background 0.15s",
                                 }}
                               >
                                 <div
@@ -1908,7 +2055,6 @@ export default function DashboardZI() {
                                   </span>
                                 </div>
                               </div>
-
                               {isIndOpen && (
                                 <div
                                   style={{
@@ -1925,7 +2071,6 @@ export default function DashboardZI() {
                                       : [];
                                     const hasFiles = files.length > 0;
                                     const uploading = !!uploadingIds[sub.id];
-
                                     return (
                                       <div
                                         key={sub.id}
@@ -1939,10 +2084,8 @@ export default function DashboardZI() {
                                           display: "flex",
                                           gap: 9,
                                           alignItems: "flex-start",
-                                          transition: "all 0.18s",
                                         }}
                                       >
-                                        {/* Status icon */}
                                         <div
                                           style={{
                                             paddingTop: 2,
@@ -1965,7 +2108,6 @@ export default function DashboardZI() {
                                             />
                                           )}
                                         </div>
-
                                         <div style={{ flex: 1, minWidth: 0 }}>
                                           <p
                                             style={{
@@ -1978,7 +2120,6 @@ export default function DashboardZI() {
                                           >
                                             {sub.text}
                                           </p>
-
                                           {uploading && (
                                             <div
                                               style={{
@@ -2001,7 +2142,6 @@ export default function DashboardZI() {
                                               Mengunggah ke Google Drive...
                                             </div>
                                           )}
-
                                           {hasFiles ? (
                                             <div
                                               style={{
@@ -2172,13 +2312,11 @@ export default function DashboardZI() {
                                               <XCircle
                                                 size={10}
                                                 color="#e2e8f0"
-                                              />{" "}
+                                              />
                                               Belum ada dokumen
                                             </span>
                                           ) : null}
                                         </div>
-
-                                        {/* Upload label */}
                                         <label
                                           style={{
                                             flexShrink: 0,
@@ -2197,7 +2335,6 @@ export default function DashboardZI() {
                                               fontSize: 11,
                                               fontWeight: 600,
                                               whiteSpace: "nowrap",
-                                              transition: "all 0.15s",
                                               ...(uploading
                                                 ? {
                                                     background: "#f8fafc",
@@ -2225,16 +2362,18 @@ export default function DashboardZI() {
                                                     animation:
                                                       "spin 1s linear infinite",
                                                   }}
-                                                />{" "}
+                                                />
                                                 Mengunggah
                                               </>
                                             ) : hasFiles ? (
                                               <>
-                                                <Upload size={10} /> Tambah
+                                                <Upload size={10} />
+                                                Tambah
                                               </>
                                             ) : (
                                               <>
-                                                <Upload size={10} /> Unggah
+                                                <Upload size={10} />
+                                                Unggah
                                               </>
                                             )}
                                           </div>
@@ -2273,7 +2412,7 @@ export default function DashboardZI() {
       </div>
 
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700&display=swap');
+        @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&display=swap');
         @keyframes spin { to { transform: rotate(360deg); } }
         * { box-sizing: border-box; }
         ::-webkit-scrollbar { width: 4px; height: 4px; }
