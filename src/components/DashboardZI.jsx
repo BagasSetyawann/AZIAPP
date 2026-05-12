@@ -23,8 +23,7 @@ const GOOGLE_CLIENT_ID =
 const SCOPES = "https://www.googleapis.com/auth/drive.file";
 
 // 👇 PENTING: GANTI DENGAN ID FOLDER GOOGLE DRIVE YANG SUDAH DI-SHARE 👇
-const SHARED_ROOT_ID =
-  "https://drive.google.com/drive/folders/1H3Ot16uThwt1QmM1O2AZl3WREatH26uy?usp=sharing";
+const SHARED_ROOT_ID = "1H3Ot16uThwt1QmM1O2AZl3WREatH26uy";
 // 👆==================================================================👆
 
 const META_FILE_NAME = "zi_doc_meta.json";
