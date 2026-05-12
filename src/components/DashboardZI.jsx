@@ -22,6 +22,7 @@ const GOOGLE_CLIENT_ID =
   "261773148186-1co5gre3f7sqq8q3s04uddlfj3nqakv3.apps.googleusercontent.com";
 const SCOPES = "https://www.googleapis.com/auth/drive.file";
 const FOLDER_ROOT_NAME = "BUKTI DUKUNG ZI 2026";
+const META_FILE_NAME = "zi_doc_meta.json"; // File database kita
 const FOLDER_PENGUNGKIT = "A. PENGUNGKIT";
 const TAB_FOLDER = { A: "I. PEMENUHAN", B: "II. REFORM" };
 const PILLAR_FOLDER = {
@@ -785,7 +786,7 @@ const ZI_DATA = {
   },
 };
 
-// ── Google Drive helpers ──
+// ── Google Drive Helpers ──
 function loadGoogleScripts() {
   return new Promise((resolve) => {
     if (window._gapiLoaded && window._gisLoaded) {
@@ -827,6 +828,7 @@ async function loadDriveDiscovery() {
   await window.gapi.client.load("drive", "v3");
   window._driveDiscoveryLoaded = true;
 }
+
 async function getOrCreateFolder(name, parentId = null) {
   const q = parentId
     ? `name='${name}' and mimeType='application/vnd.google-apps.folder' and '${parentId}' in parents and trashed=false`
@@ -847,6 +849,92 @@ async function getOrCreateFolder(name, parentId = null) {
   });
   return created.result.id;
 }
+
+// FUNGSI BARU: Simpan Database (JSON) ke Drive
+async function saveDocDataToDrive(dataObj) {
+  try {
+    const rootId = await getOrCreateFolder(FOLDER_ROOT_NAME);
+    const q = `name='${META_FILE_NAME}' and '${rootId}' in parents and trashed=false`;
+    const listRes = await window.gapi.client.drive.files.list({
+      q,
+      fields: "files(id)",
+    });
+
+    const token = window.gapi.client.getToken().access_token;
+    const fileContent = JSON.stringify(dataObj);
+    const blob = new Blob([fileContent], { type: "application/json" });
+
+    if (listRes.result.files.length > 0) {
+      // Update file jika sudah ada
+      const fileId = listRes.result.files[0].id;
+      await fetch(
+        `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`,
+        {
+          method: "PATCH",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": "application/json",
+          },
+          body: blob,
+        },
+      );
+    } else {
+      // Buat file baru jika belum ada
+      const metadata = {
+        name: META_FILE_NAME,
+        parents: [rootId],
+        mimeType: "application/json",
+      };
+      const form = new FormData();
+      form.append(
+        "metadata",
+        new Blob([JSON.stringify(metadata)], { type: "application/json" }),
+      );
+      form.append("file", blob);
+
+      await fetch(
+        "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
+        {
+          method: "POST",
+          headers: { Authorization: `Bearer ${token}` },
+          body: form,
+        },
+      );
+    }
+  } catch (error) {
+    console.error("Gagal sinkronisasi data ke Drive:", error);
+  }
+}
+
+// FUNGSI BARU: Ambil Database (JSON) dari Drive
+async function fetchDocDataFromDrive() {
+  try {
+    const rootId = await getOrCreateFolder(FOLDER_ROOT_NAME);
+    const q = `name='${META_FILE_NAME}' and '${rootId}' in parents and trashed=false`;
+    const listRes = await window.gapi.client.drive.files.list({
+      q,
+      fields: "files(id)",
+    });
+
+    if (listRes.result.files.length > 0) {
+      const fileId = listRes.result.files[0].id;
+      const token = window.gapi.client.getToken().access_token;
+      const res = await fetch(
+        `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+        },
+      );
+      if (res.ok) {
+        return await res.json();
+      }
+    }
+  } catch (error) {
+    console.error("Gagal menarik data dari Drive:", error);
+  }
+  return null;
+}
+
 async function uploadFileToDrive(file, subId, tabKey, indicatorTitle, subText) {
   const idParts = subId.split("-");
   const pillarId = idParts.slice(0, 2).join("-");
@@ -897,6 +985,7 @@ async function uploadFileToDrive(file, subId, tabKey, indicatorTitle, subText) {
   if (!res.ok) throw new Error(`Upload gagal: ${res.statusText}`);
   return res.json();
 }
+
 async function deleteFileFromDrive(id) {
   await window.gapi.client.drive.files.delete({ fileId: id });
 }
@@ -1101,6 +1190,7 @@ export default function DashboardZI() {
   const [expandedPillar, setExpandedPillar] = useState(null);
   const [expandedIndicator, setExpandedIndicator] = useState(null);
   const [uploadingIds, setUploadingIds] = useState({});
+  const [isSyncing, setIsSyncing] = useState(false);
   const [docData, setDocData] = useState(() => {
     try {
       const s = localStorage.getItem("zi_drive_meta_v2");
@@ -1108,14 +1198,27 @@ export default function DashboardZI() {
     } catch {}
     return {};
   });
+
+  const { authStatus, userInfo, signIn, signOut } = useGoogleAuth();
+  const isConnected = authStatus === "connected";
+
+  // Simpan ke localStorage sebagai backup
   useEffect(() => {
     try {
       localStorage.setItem("zi_drive_meta_v2", JSON.stringify(docData));
     } catch {}
   }, [docData]);
 
-  const { authStatus, userInfo, signIn, signOut } = useGoogleAuth();
-  const isConnected = authStatus === "connected";
+  // Tarik data dari Google Drive setelah berhasil login
+  useEffect(() => {
+    if (isConnected) {
+      setIsSyncing(true);
+      fetchDocDataFromDrive().then((data) => {
+        if (data) setDocData(data);
+        setIsSyncing(false);
+      });
+    }
+  }, [isConnected]);
 
   const calcProgress = (indicators) => {
     let t = 0,
@@ -1161,37 +1264,59 @@ export default function DashboardZI() {
         alert(`Gagal upload "${file.name}": ${err.message}`);
       }
     }
-    if (newFiles.length)
+
+    if (newFiles.length) {
+      let finalData;
       setDocData((p) => {
         const ex = Array.isArray(p[subId]) ? p[subId] : [];
-        return { ...p, [subId]: [...ex, ...newFiles] };
+        finalData = { ...p, [subId]: [...ex, ...newFiles] };
+        return finalData;
       });
+      // Sinkronkan ke Drive secara background
+      setIsSyncing(true);
+      saveDocDataToDrive(finalData).then(() => setIsSyncing(false));
+    }
+
     setUploadingIds((p) => ({ ...p, [subId]: false }));
   };
+
   const handleDelete = async (subId, file) => {
     if (!confirm(`Hapus "${file.fileName}" dari Drive?`)) return;
     try {
       await deleteFileFromDrive(file.driveFileId);
     } catch {}
+
+    let finalData;
     setDocData((p) => {
       const u = (p[subId] || []).filter((f) => f.id !== file.id);
       if (!u.length) {
         const n = { ...p };
         delete n[subId];
+        finalData = n;
         return n;
       }
-      return { ...p, [subId]: u };
+      finalData = { ...p, [subId]: u };
+      return finalData;
     });
+
+    // Sinkronkan ke Drive secara background
+    setIsSyncing(true);
+    saveDocDataToDrive(finalData).then(() => setIsSyncing(false));
   };
+
   const resetData = () => {
     if (
       !confirm(
-        "Reset semua data tracking lokal? (File di Drive tidak ikut terhapus)",
+        "Reset semua data tracking? Tindakan ini akan mengosongkan metadata (File di Drive tidak ikut terhapus)",
       )
     )
       return;
     setDocData({});
     localStorage.removeItem("zi_drive_meta_v2");
+    if (isConnected) {
+      setIsSyncing(true);
+      saveDocDataToDrive({}).then(() => setIsSyncing(false));
+    }
   };
 
   const now = new Date();
@@ -1233,7 +1358,6 @@ export default function DashboardZI() {
     progress: calcProgress(p.indicators),
   }));
 
-  // KEY FIX: position:fixed + inset:0 agar benar-benar fullscreen tanpa dipengaruhi body margin/padding
   return (
     <div
       style={{
@@ -1765,12 +1889,29 @@ export default function DashboardZI() {
                 alignItems: "center",
                 gap: 5,
                 fontSize: 10,
-                color: isConnected ? "#34d399" : "#334155",
+                color: isSyncing
+                  ? "#60a5fa"
+                  : isConnected
+                    ? "#34d399"
+                    : "#334155",
                 fontWeight: 500,
               }}
             >
-              {isConnected ? <FolderSync size={11} /> : <CloudOff size={11} />}{" "}
-              {isConnected ? "Terhubung ke Google Drive" : "Belum terhubung"}
+              {isSyncing ? (
+                <Loader2
+                  size={11}
+                  style={{ animation: "spin 1s linear infinite" }}
+                />
+              ) : isConnected ? (
+                <FolderSync size={11} />
+              ) : (
+                <CloudOff size={11} />
+              )}
+              {isSyncing
+                ? "Sinkronisasi data..."
+                : isConnected
+                  ? "Tersinkron dengan Drive"
+                  : "Belum terhubung"}
             </div>
           </div>
         </aside>
@@ -1927,8 +2068,7 @@ export default function DashboardZI() {
                             padding: "2px 8px",
                           }}
                         >
-                          <CheckCircle2 size={11} />
-                          Lengkap
+                          <CheckCircle2 size={11} /> Lengkap
                         </div>
                       )}
                       <div
@@ -2138,7 +2278,7 @@ export default function DashboardZI() {
                                                   animation:
                                                     "spin 1s linear infinite",
                                                 }}
-                                              />
+                                              />{" "}
                                               Mengunggah ke Google Drive...
                                             </div>
                                           )}
@@ -2227,73 +2367,80 @@ export default function DashboardZI() {
                                                       flexShrink: 0,
                                                     }}
                                                   >
-                                                    {[
-                                                      {
-                                                        icon: (
-                                                          <FolderOpen
-                                                            size={11}
-                                                          />
-                                                        ),
-                                                        title: "Buka di Drive",
-                                                        c: "#1d4ed8",
-                                                        bg: "#eff6ff",
-                                                        fn: () =>
-                                                          file.webViewLink &&
-                                                          window.open(
-                                                            file.webViewLink,
-                                                            "_blank",
-                                                          ),
-                                                      },
-                                                      {
-                                                        icon: (
-                                                          <Download size={11} />
-                                                        ),
-                                                        title: "Unduh",
-                                                        c: "#6d28d9",
-                                                        bg: "#f5f3ff",
-                                                        fn: () =>
-                                                          file.webContentLink &&
-                                                          window.open(
-                                                            file.webContentLink,
-                                                            "_blank",
-                                                          ),
-                                                      },
-                                                      {
-                                                        icon: (
-                                                          <Trash2 size={11} />
-                                                        ),
-                                                        title: "Hapus",
-                                                        c: "#be123c",
-                                                        bg: "#fff1f2",
-                                                        fn: () =>
-                                                          handleDelete(
-                                                            sub.id,
-                                                            file,
-                                                          ),
-                                                      },
-                                                    ].map((btn, bi) => (
-                                                      <button
-                                                        key={bi}
-                                                        onClick={btn.fn}
-                                                        title={btn.title}
-                                                        style={{
-                                                          width: 24,
-                                                          height: 24,
-                                                          borderRadius: 5,
-                                                          border: "none",
-                                                          background: btn.bg,
-                                                          color: btn.c,
-                                                          cursor: "pointer",
-                                                          display: "flex",
-                                                          alignItems: "center",
-                                                          justifyContent:
-                                                            "center",
-                                                          fontFamily: "inherit",
-                                                        }}
-                                                      >
-                                                        {btn.icon}
-                                                      </button>
-                                                    ))}
+                                                    <button
+                                                      onClick={() =>
+                                                        file.webViewLink &&
+                                                        window.open(
+                                                          file.webViewLink,
+                                                          "_blank",
+                                                        )
+                                                      }
+                                                      title="Buka di Drive"
+                                                      style={{
+                                                        width: 24,
+                                                        height: 24,
+                                                        borderRadius: 5,
+                                                        border: "none",
+                                                        background: "#eff6ff",
+                                                        color: "#1d4ed8",
+                                                        cursor: "pointer",
+                                                        display: "flex",
+                                                        alignItems: "center",
+                                                        justifyContent:
+                                                          "center",
+                                                      }}
+                                                    >
+                                                      <FolderOpen size={11} />
+                                                    </button>
+                                                    <button
+                                                      onClick={() =>
+                                                        file.webContentLink &&
+                                                        window.open(
+                                                          file.webContentLink,
+                                                          "_blank",
+                                                        )
+                                                      }
+                                                      title="Unduh"
+                                                      style={{
+                                                        width: 24,
+                                                        height: 24,
+                                                        borderRadius: 5,
+                                                        border: "none",
+                                                        background: "#f5f3ff",
+                                                        color: "#6d28d9",
+                                                        cursor: "pointer",
+                                                        display: "flex",
+                                                        alignItems: "center",
+                                                        justifyContent:
+                                                          "center",
+                                                      }}
+                                                    >
+                                                      <Download size={11} />
+                                                    </button>
+                                                    <button
+                                                      onClick={() =>
+                                                        handleDelete(
+                                                          sub.id,
+                                                          file,
+                                                        )
+                                                      }
+                                                      title="Hapus"
+                                                      style={{
+                                                        width: 24,
+                                                        height: 24,
+                                                        borderRadius: 5,
+                                                        border: "none",
+                                                        background: "#fff1f2",
+                                                        color: "#be123c",
+                                                        cursor: "pointer",
+                                                        display: "flex",
+                                                        alignItems: "center",
+                                                        justifyContent:
+                                                          "center",
+                                                      }}
+                                                    >
+                                                      <Trash2 size={11} />
+                                                    </button>
                                                   </div>
                                                 </div>
                                               ))}
@@ -2312,7 +2459,7 @@ export default function DashboardZI() {
                                               <XCircle
                                                 size={10}
                                                 color="#e2e8f0"
-                                              />
+                                              />{" "}
                                               Belum ada dokumen
                                             </span>
                                           ) : null}
@@ -2362,18 +2509,16 @@ export default function DashboardZI() {
                                                     animation:
                                                       "spin 1s linear infinite",
                                                   }}
-                                                />
+                                                />{" "}
                                                 Mengunggah
                                               </>
                                             ) : hasFiles ? (
                                               <>
-                                                <Upload size={10} />
-                                                Tambah
+                                                <Upload size={10} /> Tambah
                                               </>
                                             ) : (
                                               <>
-                                                <Upload size={10} />
-                                                Unggah
+                                                <Upload size={10} /> Unggah
                                               </>
                                             )}
                                           </div>
@@ -2410,7 +2555,6 @@ export default function DashboardZI() {
           </div>
         </main>
       </div>
-
       <style>{`
         @import url('https://fonts.googleapis.com/css2?family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600;9..40,700;9..40,800&display=swap');
         @keyframes spin { to { transform: rotate(360deg); } }
