@@ -850,7 +850,7 @@ async function getOrCreateFolder(name, parentId = null) {
   return created.result.id;
 }
 
-// FUNGSI BARU: Simpan Database (JSON) ke Drive
+// FUNGSI BARU: Simpan Database (JSON) ke Drive (Diperbaiki agar 100% Stabil)
 async function saveDocDataToDrive(dataObj) {
   try {
     const rootId = await getOrCreateFolder(FOLDER_ROOT_NAME);
@@ -863,58 +863,39 @@ async function saveDocDataToDrive(dataObj) {
     const token = window.gapi.client.getToken().access_token;
     const fileContent = JSON.stringify(dataObj);
 
+    let fileId;
+
     if (listRes.result.files.length > 0) {
-      // Update file jika sudah ada
-      const fileId = listRes.result.files[0].id;
-      await fetch(
-        `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`,
-        {
-          method: "PATCH",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": "application/json",
-          },
-          body: fileContent,
-        },
-      );
+      // Jika file sudah ada, ambil ID-nya
+      fileId = listRes.result.files[0].id;
     } else {
-      // Buat file baru menggunakan multipart manual (Lebih stabil untuk Google Drive)
-      const boundary = "meta_boundary_" + Date.now();
-      const enc = new TextEncoder();
-      const meta = JSON.stringify({
-        name: META_FILE_NAME,
-        parents: [rootId],
-        mimeType: "application/json",
-      });
-
-      const parts = [
-        enc.encode(
-          `\r\n--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n`,
-        ),
-        enc.encode(fileContent),
-        enc.encode(`\r\n--${boundary}--`),
-      ];
-
-      let len = 0;
-      parts.forEach((p) => (len += p.byteLength));
-      const body = new Uint8Array(len);
-      let off = 0;
-      parts.forEach((p) => {
-        body.set(p, off);
-        off += p.byteLength;
-      });
-
-      await fetch(
-        "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": `multipart/related; boundary=${boundary}`,
-          },
-          body: body,
+      // Jika file belum ada, BUAT metadata file kosong terlebih dahulu via GAPI (sangat stabil)
+      const created = await window.gapi.client.drive.files.create({
+        resource: {
+          name: META_FILE_NAME,
+          parents: [rootId],
+          mimeType: "application/json",
         },
-      );
+        fields: "id",
+      });
+      fileId = created.result.id;
+    }
+
+    // UPDATE isi file tersebut dengan string JSON kita
+    const res = await fetch(
+      `https://www.googleapis.com/upload/drive/v3/files/${fileId}?uploadType=media`,
+      {
+        method: "PATCH",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: fileContent,
+      },
+    );
+
+    if (!res.ok) {
+      console.error("Gagal mengisi data ke file JSON:", await res.text());
     }
   } catch (error) {
     console.error("Gagal sinkronisasi data ke Drive:", error);
@@ -1234,9 +1215,26 @@ export default function DashboardZI() {
   useEffect(() => {
     if (isConnected) {
       setIsSyncing(true);
-      fetchDocDataFromDrive().then((data) => {
-        if (data) setDocData(data);
-        setIsSyncing(false);
+      fetchDocDataFromDrive().then((driveData) => {
+        if (driveData) {
+          // Jika ada data di Drive, langsung pakai data dari Drive
+          setDocData(driveData);
+          setIsSyncing(false);
+        } else {
+          // JIKA DRIVE KOSONG (File belum ada)
+          // Cek apakah di browser lokal ini ada progres lama
+          setDocData((currentLocalData) => {
+            if (Object.keys(currentLocalData).length > 0) {
+              // Jika ada progres lama, otomatis dorong/upload ke Drive sekarang!
+              saveDocDataToDrive(currentLocalData).then(() =>
+                setIsSyncing(false),
+              );
+            } else {
+              setIsSyncing(false);
+            }
+            return currentLocalData;
+          });
+        }
       });
     }
   }, [isConnected]);
