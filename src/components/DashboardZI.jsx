@@ -862,7 +862,6 @@ async function saveDocDataToDrive(dataObj) {
 
     const token = window.gapi.client.getToken().access_token;
     const fileContent = JSON.stringify(dataObj);
-    const blob = new Blob([fileContent], { type: "application/json" });
 
     if (listRes.result.files.length > 0) {
       // Update file jika sudah ada
@@ -875,29 +874,45 @@ async function saveDocDataToDrive(dataObj) {
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
           },
-          body: blob,
+          body: fileContent,
         },
       );
     } else {
-      // Buat file baru jika belum ada
-      const metadata = {
+      // Buat file baru menggunakan multipart manual (Lebih stabil untuk Google Drive)
+      const boundary = "meta_boundary_" + Date.now();
+      const enc = new TextEncoder();
+      const meta = JSON.stringify({
         name: META_FILE_NAME,
         parents: [rootId],
         mimeType: "application/json",
-      };
-      const form = new FormData();
-      form.append(
-        "metadata",
-        new Blob([JSON.stringify(metadata)], { type: "application/json" }),
-      );
-      form.append("file", blob);
+      });
+
+      const parts = [
+        enc.encode(
+          `\r\n--${boundary}\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n${meta}\r\n--${boundary}\r\nContent-Type: application/json\r\n\r\n`,
+        ),
+        enc.encode(fileContent),
+        enc.encode(`\r\n--${boundary}--`),
+      ];
+
+      let len = 0;
+      parts.forEach((p) => (len += p.byteLength));
+      const body = new Uint8Array(len);
+      let off = 0;
+      parts.forEach((p) => {
+        body.set(p, off);
+        off += p.byteLength;
+      });
 
       await fetch(
         "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
         {
           method: "POST",
-          headers: { Authorization: `Bearer ${token}` },
-          body: form,
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": `multipart/related; boundary=${boundary}`,
+          },
+          body: body,
         },
       );
     }
@@ -919,12 +934,18 @@ async function fetchDocDataFromDrive() {
     if (listRes.result.files.length > 0) {
       const fileId = listRes.result.files[0].id;
       const token = window.gapi.client.getToken().access_token;
+
+      // Tambahkan Date.now() di URL untuk mem-bypass cache browser
       const res = await fetch(
-        `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`,
+        `https://www.googleapis.com/drive/v3/files/${fileId}?alt=media&t=${Date.now()}`,
         {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Cache-Control": "no-cache", // Memaksa browser meminta data terbaru
+          },
         },
       );
+
       if (res.ok) {
         return await res.json();
       }
